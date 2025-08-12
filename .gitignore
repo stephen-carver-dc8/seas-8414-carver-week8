@@ -1,0 +1,3 @@
+logs.log
+.streamlit/secrets.toml
+__pycache__/genai_prescriptions.cpython-311.pyc
