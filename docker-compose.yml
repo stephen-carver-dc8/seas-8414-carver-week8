@@ -5,7 +5,5 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      # Mount the entire project directory for instant code changes
       - .:/app
-    # CORRECTED COMMAND: Points to app.py in the root of the /app directory
     command: /bin/sh -c "python train_model.py && streamlit run app.py --server.fileWatcherType none"
