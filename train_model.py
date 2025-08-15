@@ -8,6 +8,7 @@ from pycaret.clustering import (
 )
 import os
 import matplotlib.pyplot as plt
+import json
 
 
 def generate_synthetic_data(num_samples=600):
@@ -160,8 +161,11 @@ def train():
         else:
             mapping[idx] = "State-Sponsored"
 
-    # Attach mapping to model before saving so inference can access it directly
+    # Attach mapping to model (not persisted by PyCaret) and save mapping separately
     kmeans.cluster_mapping = mapping
+    mapping_path = 'models/cluster_mapping.json'
+    with open(mapping_path, 'w') as f:
+        json.dump(mapping, f)
     cluster_save_model(kmeans, cluster_path)
 
     print("Models and artifacts saved successfully.")
