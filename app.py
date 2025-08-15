@@ -34,8 +34,6 @@ def load_assets():
     if os.path.exists(mapping_path):
         with open(mapping_path, 'r') as f:
             mapping = json.load(f)
-    elif cluster_model:
-        mapping = getattr(cluster_model, "cluster_mapping", {})
     if os.path.exists(plot_path):
         plot = plot_path
     return cls_model, cluster_model, mapping, plot
@@ -130,9 +128,10 @@ else:
         if is_malicious:
             st.write("▶️ **Step 3: Threat Attribution** - Profiling potential threat actor.")
             cluster_pred = predict_cluster_model(cluster_model, data=input_data)
-            cluster_id = cluster_pred['Cluster'].iloc[0]
+            cluster_id_str = cluster_pred['Cluster'].iloc[0]
+            cluster_id = cluster_id_str.split(' ')[1]
             actor_profile = cluster_mapping.get(cluster_id)
-            st.write(f"Predicted actor: **{actor_profile}**")
+            st.write(f"Predicted actor: **{cluster_id} - {actor_profile}**")
             time.sleep(1)
             st.write(f"▶️ **Step 4: Prescriptive Analytics** - Engaging **{genai_provider}** for action plan.")
             try:
