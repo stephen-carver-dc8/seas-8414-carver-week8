@@ -1,10 +1,12 @@
 # app.py
 import streamlit as st
 import pandas as pd
-from pycaret.classification import load_model, predict_model
+from pycaret.classification import load_model as load_cls_model, predict_model as predict_cls_model
+from pycaret.clustering import load_model as load_cluster_model, predict_model as predict_cluster_model
 from genai_prescriptions import generate_prescription
 import os
 import time
+import json
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -17,20 +19,29 @@ st.set_page_config(
 # --- Load Model and Feature Plot ---
 @st.cache_resource
 def load_assets():
-    model_path = 'models/phishing_url_detector'
+    cls_path = 'models/phishing_url_detector'
+    cluster_path = 'models/threat_actor_profiler'
     plot_path = 'models/feature_importance.png'
-    model = None
+    cls_model = None
+    cluster_model = None
+    mapping = {}
     plot = None
-    if os.path.exists(model_path + '.pkl'):
-        model = load_model(model_path)
+    if os.path.exists(cls_path + '.pkl'):
+        cls_model = load_cls_model(cls_path)
+    if os.path.exists(cluster_path + '.pkl'):
+        cluster_model = load_cluster_model(cluster_path)
+    mapping_path = 'models/cluster_mapping.json'
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r') as f:
+            mapping = json.load(f)
     if os.path.exists(plot_path):
         plot = plot_path
-    return model, plot
+    return cls_model, cluster_model, mapping, plot
 
 
-model, feature_plot = load_assets()
+model, cluster_model, cluster_mapping, feature_plot = load_assets()
 
-if not model:
+if not model or not cluster_model:
     st.error(
         "Model not found. Please wait for the initial training to complete, or check the container logs with `make logs` if the error persists.")
     st.stop()
@@ -51,6 +62,7 @@ with st.sidebar:
         'short_service': st.checkbox("Is it a shortened URL", value=False),
         'at_symbol': st.checkbox("URL contains '@' symbol", value=False),
         'abnormal_url': st.checkbox("Is it an abnormal URL", value=True),
+        'political_keyword': st.checkbox("URL contains political keywords", value=False),
     }
 
     st.divider()
@@ -82,6 +94,7 @@ else:
         'SSLfinal_State': -1 if form_values['ssl_state'] == 'None' else (
             0 if form_values['ssl_state'] == 'Suspicious' else 1),
         'Abnormal_URL': 1 if form_values['abnormal_url'] else -1,
+        'has_political_keyword': 1 if form_values['political_keyword'] else -1,
         'URL_of_Anchor': 0, 'Links_in_tags': 0, 'SFH': 0,
     }
     input_data = pd.DataFrame([input_dict])
@@ -95,6 +108,7 @@ else:
         "Complex Sub-domain": 10 if input_dict['having_Sub_Domain'] == 1 else 0,
         "Long URL": 10 if input_dict['URL_Length'] == 1 else 0,
         "Uses IP Address": 5 if input_dict['having_IP_Address'] == 1 else 0,
+        "Political Keyword": 5 if input_dict['has_political_keyword'] == 1 else 0,
     }
     risk_df = pd.DataFrame(list(risk_scores.items()), columns=['Feature', 'Risk Contribution']).sort_values(
         'Risk Contribution', ascending=False)
@@ -103,15 +117,23 @@ else:
     with st.status("Executing SOAR playbook...", expanded=True) as status:
         st.write("▶️ **Step 1: Predictive Analysis** - Running features through classification model.")
         time.sleep(1)
-        prediction = predict_model(model, data=input_data)
+        prediction = predict_cls_model(model, data=input_data)
         is_malicious = prediction['prediction_label'].iloc[0] == 1
 
         verdict = "MALICIOUS" if is_malicious else "BENIGN"
         st.write(f"▶️ **Step 2: Verdict Interpretation** - Model predicts **{verdict}**.")
         time.sleep(1)
 
+        actor_profile = None
         if is_malicious:
-            st.write(f"▶️ **Step 3: Prescriptive Analytics** - Engaging **{genai_provider}** for action plan.")
+            st.write("▶️ **Step 3: Threat Attribution** - Profiling potential threat actor.")
+            cluster_pred = predict_cluster_model(cluster_model, data=input_data)
+            cluster_id_str = cluster_pred['Cluster'].iloc[0]
+            cluster_id = cluster_id_str.split(' ')[1]
+            actor_profile = cluster_mapping.get(cluster_id)
+            st.write(f"Predicted actor: **{cluster_id} - {actor_profile}**")
+            time.sleep(1)
+            st.write(f"▶️ **Step 4: Prescriptive Analytics** - Engaging **{genai_provider}** for action plan.")
             try:
                 prescription = generate_prescription(genai_provider, {k: v for k, v in input_dict.items()})
                 status.update(label="✅ SOAR Playbook Executed Successfully!", state="complete", expanded=False)
@@ -124,7 +146,7 @@ else:
             status.update(label="✅ Analysis Complete. No threat found.", state="complete", expanded=False)
 
     # --- Tabs for Organized Output ---
-    tab1, tab2, tab3 = st.tabs(["📊 **Analysis Summary**", "📈 **Visual Insights**", "📜 **Prescriptive Plan**"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 **Analysis Summary**", "📈 **Visual Insights**", "📜 **Prescriptive Plan**", "🎯 **Threat Attribution**"])
 
     with tab1:
         st.subheader("Verdict and Key Findings")
@@ -162,4 +184,17 @@ else:
             st.text_area("Draft", prescription.get("communication_draft", ""), height=150)
         else:
             st.info("No prescriptive plan was generated because the URL was classified as benign.")
+
+    with tab4:
+        st.subheader("Threat Attribution")
+        THREAT_DESC = {
+            "State-Sponsored": "Highly sophisticated campaigns leveraging trusted infrastructure and subtle obfuscation techniques.",
+            "Organized Cybercrime": "Profit-driven groups executing noisy, large-scale attacks with obvious malicious indicators.",
+            "Hacktivist": "Ideologically motivated actors using opportunistic techniques and political messaging.",
+        }
+        if is_malicious and actor_profile:
+            st.write(f"**Likely Actor:** {actor_profile}")
+            st.caption(THREAT_DESC.get(actor_profile, ""))
+        else:
+            st.info("No threat actor attribution for benign URLs.")
 
