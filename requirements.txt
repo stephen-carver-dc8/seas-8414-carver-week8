@@ -1,6 +1,5 @@
 pandas
 pycaret[full]
-cuml
 streamlit
 google-generativeai
 openai
