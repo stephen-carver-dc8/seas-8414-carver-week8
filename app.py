@@ -6,6 +6,7 @@ from pycaret.clustering import load_model as load_cluster_model, predict_model a
 from genai_prescriptions import generate_prescription
 import os
 import time
+import json
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -23,14 +24,18 @@ def load_assets():
     plot_path = 'models/feature_importance.png'
     cls_model = None
     cluster_model = None
-    mapping = None
+    mapping = {}
     plot = None
     if os.path.exists(cls_path + '.pkl'):
-        cls_model = load_cls_model(cls_path) 
+        cls_model = load_cls_model(cls_path)
     if os.path.exists(cluster_path + '.pkl'):
-        cluster_model = load_cluster_model(cluster_path) 
-    if cluster_model:
-        mapping = getattr(cluster_model, "cluster_mapping", {}) 
+        cluster_model = load_cluster_model(cluster_path)
+    mapping_path = 'models/cluster_mapping.json'
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r') as f:
+            mapping = json.load(f)
+    elif cluster_model:
+        mapping = getattr(cluster_model, "cluster_mapping", {})
     if os.path.exists(plot_path):
         plot = plot_path
     return cls_model, cluster_model, mapping, plot
